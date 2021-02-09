@@ -9,7 +9,7 @@ using namespace std;
 #include <Eigen/Dense>
 
 using namespace Eigen;
-
+// 定义一个宏，宏替换会在编译前执行
 #define MATRIX_SIZE 50
 
 /****************************
@@ -29,9 +29,11 @@ int main(int argc, char **argv) {
 
   // Matrix3d 实质上是 Eigen::Matrix<double, 3, 3>
   Matrix3d matrix_33 = Matrix3d::Zero(); //初始化为零
+
   // 如果不确定矩阵大小，可以使用动态大小的矩阵
+  // Dynamic是Eigen命名空间下的一个const int，值为-1
   Matrix<double, Dynamic, Dynamic> matrix_dynamic;
-  // 更简单的
+  // 更简单的一种表示，MatrixXd与Matrix<double, Dynamic, Dynamic>等价
   MatrixXd matrix_x;
   // 这种类型还有很多，我们不一一列举
 

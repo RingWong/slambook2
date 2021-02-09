@@ -29,3 +29,12 @@ BaiduYun backup link in case your github is very slow (common in China): [here](
 希望您喜欢本书。
 
 本代码的百度云备份（如果您的github速度非常慢）[下载链接](https://pan.baidu.com/s/1XQwpnDb3BOvxXZhL-03p3w).
+
+
+## MY DEMO 
+### Docker运行命令
+```
+docker run --rm -v /www/hxy/docker_share_file/slambook2-master:/slambook2 slambook2:1.0 ch2
+```
+
+
