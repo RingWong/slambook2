@@ -11,14 +11,24 @@ COPY . /slambook2
 
 # 更新apt源地址，并安装Eigen库
 # Eigen库默认安装在/usr/include/eigen3中
+# amd64
+# RUN sed -i 's/archive.ubuntu.com/mirrors.aliyun.com/g' /etc/apt/sources.list && apt update \ 
+#     && apt-get install -y software-properties-common \
+#     && add-apt-repository "deb http://security.ubuntu.com/ubuntu xenial-security main" && apt update \
+#     && apt install -y libeigen3-dev cmake build-essential libgl1-mesa-dev \
+#     libglew-dev libgoogle-glog-dev libgflags-dev libatlas-base-dev libsuitesparse-dev \
+#     libsuitesparse-dev qtdeclarative5-dev qt5-qmake libqglviewer-dev-qt5 \
+#     libgtk2.0-dev pkg-config libavcodec-dev libavformat-dev libswscale-dev \
+#     python-dev python-numpy libtbb2 libtbb-dev libjpeg-dev libpng-dev libtiff-dev libjasper-dev libdc1394-22-dev \
+#     && apt clean
+
+# arm64
 RUN sed -i 's/archive.ubuntu.com/mirrors.aliyun.com/g' /etc/apt/sources.list && apt update \ 
-    && apt-get install -y software-properties-common \
-    && add-apt-repository "deb http://security.ubuntu.com/ubuntu xenial-security main" && apt update \
     && apt install -y libeigen3-dev cmake build-essential libgl1-mesa-dev \
     libglew-dev libgoogle-glog-dev libgflags-dev libatlas-base-dev libsuitesparse-dev \
     libsuitesparse-dev qtdeclarative5-dev qt5-qmake libqglviewer-dev-qt5 \
     libgtk2.0-dev pkg-config libavcodec-dev libavformat-dev libswscale-dev \
-    python-dev python-numpy libtbb2 libtbb-dev libjpeg-dev libpng-dev libtiff-dev libjasper-dev libdc1394-22-dev \
+    python-dev python-numpy libtbb2 libtbb-dev libjpeg8-dev libpng-dev libtiff-dev libdc1394-22-dev \
     && apt clean
 
 # Pangolin
