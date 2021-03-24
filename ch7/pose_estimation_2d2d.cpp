@@ -2,7 +2,7 @@
 #include <opencv2/core/core.hpp>
 #include <opencv2/features2d/features2d.hpp>
 #include <opencv2/highgui/highgui.hpp>
-#include <opencv2/calib3d/calib3d.hpp>
+#include <opencv2/calib3d/calib3d.hpp>  // Camera Calibration and 3D Reconstruction
 // #include "extra.h" // use this if in OpenCV2
 
 using namespace std;
@@ -12,6 +12,7 @@ using namespace cv;
  * 本程序演示了如何使用2D-2D的特征匹配估计相机运动
  * **************************************************/
 
+// 声明后续会用到的函数原型
 void find_feature_matches(
   const Mat &img_1, const Mat &img_2,
   std::vector<KeyPoint> &keypoints_1,
@@ -25,6 +26,7 @@ void pose_estimation_2d2d(
   Mat &R, Mat &t);
 
 // 像素坐标转相机归一化坐标
+// typedef cv::Point_<double> cv::Point2d
 Point2d pixel2cam(const Point2d &p, const Mat &K);
 
 int main(int argc, char **argv) {
@@ -33,16 +35,21 @@ int main(int argc, char **argv) {
     return 1;
   }
   //-- 读取图像
+  // CV_LOAD_IMAGE_COLOR: 以RGB格式加载原图像
   Mat img_1 = imread(argv[1], CV_LOAD_IMAGE_COLOR);
   Mat img_2 = imread(argv[2], CV_LOAD_IMAGE_COLOR);
   assert(img_1.data && img_2.data && "Can not load images!");
 
   vector<KeyPoint> keypoints_1, keypoints_2;
+  // cv::DMatch: 用于匹配关键点描述子的类
+  // 可以实现: query descriptor index, train descriptor index, train image index, and distance between descriptors.
+  // 进行ORB特征提取与匹配
   vector<DMatch> matches;
   find_feature_matches(img_1, img_2, keypoints_1, keypoints_2, matches);
   cout << "一共找到了" << matches.size() << "组匹配点" << endl;
 
   //-- 估计两张图像间运动
+  // 通过求解E，然后SVD分解E，得到R， t
   Mat R, t;
   pose_estimation_2d2d(keypoints_1, keypoints_2, matches, R, t);
 
@@ -67,6 +74,18 @@ int main(int argc, char **argv) {
   return 0;
 }
 
+/**
+ * @brief ORB提取关键点、描述子，并进行过滤
+ *        和orb_cv.cpp实现的功能一样
+ * 
+ * @param img_1  输入图像1
+ * @param img_2  输入图像2
+ * @param keypoints_1  保存输入图像1关键点的变量引用
+ * @param keypoints_2  保存输入图像2关键点的变量引用
+ * @param matches  保存图像1和2之间的描述子匹配关系
+ * 
+ * @return None
+ **/
 void find_feature_matches(const Mat &img_1, const Mat &img_2,
                           std::vector<KeyPoint> &keypoints_1,
                           std::vector<KeyPoint> &keypoints_2,
@@ -74,12 +93,21 @@ void find_feature_matches(const Mat &img_1, const Mat &img_2,
   //-- 初始化
   Mat descriptors_1, descriptors_2;
   // used in OpenCV3
+  /**
+   * 两者是一致的
+   * typedef Feature2D FeatureDetector
+   * typedef Feature2D DescriptorExtractor
+   **/
   Ptr<FeatureDetector> detector = ORB::create();
   Ptr<DescriptorExtractor> descriptor = ORB::create();
+
   // use this if you are in OpenCV2
   // Ptr<FeatureDetector> detector = FeatureDetector::create ( "ORB" );
   // Ptr<DescriptorExtractor> descriptor = DescriptorExtractor::create ( "ORB" );
+
+  // 定义一个匹配关键点描述子的指针
   Ptr<DescriptorMatcher> matcher = DescriptorMatcher::create("BruteForce-Hamming");
+
   //-- 第一步:检测 Oriented FAST 角点位置
   detector->detect(img_1, keypoints_1);
   detector->detect(img_2, keypoints_2);
@@ -97,6 +125,7 @@ void find_feature_matches(const Mat &img_1, const Mat &img_2,
   double min_dist = 10000, max_dist = 0;
 
   //找出所有匹配之间的最小距离和最大距离, 即是最相似的和最不相似的两组点之间的距离
+  // 在orb_cv.cpp中使用的是stl::minmax_element()求出最小、最大值
   for (int i = 0; i < descriptors_1.rows; i++) {
     double dist = match[i].distance;
     if (dist < min_dist) min_dist = dist;
@@ -122,24 +151,46 @@ Point2d pixel2cam(const Point2d &p, const Mat &K) {
     );
 }
 
+/**
+ * @brief 利用对极约束来估计相机运动
+ * 
+ * @param keypoints_1  图像1关键点
+ * @param keypoints_2  图像2关键点
+ * @param matches  保存图像1和2之间的描述子匹配关系
+ * @param R  旋转矩阵
+ * @param t  位移向量
+ * 
+ * @return None
+ **/
 void pose_estimation_2d2d(std::vector<KeyPoint> keypoints_1,
                           std::vector<KeyPoint> keypoints_2,
                           std::vector<DMatch> matches,
                           Mat &R, Mat &t) {
   // 相机内参,TUM Freiburg2
+  /**
+   * Mat_<T>继承自Mat
+   * 如果要使用一系列的元素访问操作，并且在编译时知道矩阵的类型，则使用Mat_<T>更方便
+   * 
+   * 使用(cv::Mat_<T>(row, col) << ...)形式进行初始化时，外面的()不能省略
+   **/
   Mat K = (Mat_<double>(3, 3) << 520.9, 0, 325.1, 0, 521.0, 249.7, 0, 0, 1);
 
   //-- 把匹配点转换为vector<Point2f>的形式
+  // 为什么要转换？
+  // 因为后面计算F需要
   vector<Point2f> points1;
   vector<Point2f> points2;
 
   for (int i = 0; i < (int) matches.size(); i++) {
+    // .pt：返回关键点的坐标Point2f
     points1.push_back(keypoints_1[matches[i].queryIdx].pt);
     points2.push_back(keypoints_2[matches[i].trainIdx].pt);
   }
 
   //-- 计算基础矩阵
   Mat fundamental_matrix;
+  // cd::findFundamentalMat()，返回一个Mat
+  // #define CV_FM_8POINT 2：使用八点算法计算F
   fundamental_matrix = findFundamentalMat(points1, points2, CV_FM_8POINT);
   cout << "fundamental_matrix is " << endl << fundamental_matrix << endl;
 
