@@ -1,3 +1,7 @@
+/**
+ * PnP解决当知道n个3D空间点及其投影位置时，如何估计相机的位姿
+ **/
+
 #include <iostream>
 #include <opencv2/core/core.hpp>
 #include <opencv2/features2d/features2d.hpp>
@@ -46,6 +50,7 @@ void bundleAdjustmentGaussNewton(
 );
 
 int main(int argc, char **argv) {
+  // 其实第5个参数：depth2，并没有用到
   if (argc != 5) {
     cout << "usage: pose_estimation_3d2d img1 img2 depth1 depth2" << endl;
     return 1;
@@ -54,7 +59,8 @@ int main(int argc, char **argv) {
   Mat img_1 = imread(argv[1], CV_LOAD_IMAGE_COLOR);
   Mat img_2 = imread(argv[2], CV_LOAD_IMAGE_COLOR);
   assert(img_1.data && img_2.data && "Can not load images!");
-
+  
+  // 提取关键点、描述子
   vector<KeyPoint> keypoints_1, keypoints_2;
   vector<DMatch> matches;
   find_feature_matches(img_1, img_2, keypoints_1, keypoints_2, matches);
@@ -62,14 +68,21 @@ int main(int argc, char **argv) {
 
   // 建立3D点
   Mat d1 = imread(argv[3], CV_LOAD_IMAGE_UNCHANGED);       // 深度图为16位无符号数，单通道图像
+  // 相机内参
   Mat K = (Mat_<double>(3, 3) << 520.9, 0, 325.1, 0, 521.0, 249.7, 0, 0, 1);
+  // Point3f：3D浮点型坐标
   vector<Point3f> pts_3d;
   vector<Point2f> pts_2d;
+
+  // 为了防止出现深度为0的情况，需要进行一次过滤
   for (DMatch m:matches) {
+    // 取出描述子对应坐标的深度
     ushort d = d1.ptr<unsigned short>(int(keypoints_1[m.queryIdx].pt.y))[int(keypoints_1[m.queryIdx].pt.x)];
     if (d == 0)   // bad depth
       continue;
+    // 归一化
     float dd = d / 5000.0;
+    // 像素坐标转相机归一化坐标
     Point2d p1 = pixel2cam(keypoints_1[m.queryIdx].pt, K);
     pts_3d.push_back(Point3f(p1.x * dd, p1.y * dd, dd));
     pts_2d.push_back(keypoints_2[m.trainIdx].pt);
@@ -79,8 +92,13 @@ int main(int argc, char **argv) {
 
   chrono::steady_clock::time_point t1 = chrono::steady_clock::now();
   Mat r, t;
+  /**
+   * cv::solvePnP()
+   * 返回r和t
+   **/
   solvePnP(pts_3d, pts_2d, K, Mat(), r, t, false); // 调用OpenCV 的 PnP 求解，可选择EPNP，DLS等方法
   Mat R;
+  // 实现旋转矩阵和旋转向量之间的相互转换
   cv::Rodrigues(r, R); // r为旋转向量形式，用Rodrigues公式转换为矩阵
   chrono::steady_clock::time_point t2 = chrono::steady_clock::now();
   chrono::duration<double> time_used = chrono::duration_cast<chrono::duration<double>>(t2 - t1);
@@ -89,6 +107,8 @@ int main(int argc, char **argv) {
   cout << "R=" << endl << R << endl;
   cout << "t=" << endl << t << endl;
 
+  // vector<Eigen::Vector2d, Eigen::aligned_allocator<Eigen::Vector2d>> VecVector2d;
+  // 不使用默认的分配：allocator<T>
   VecVector3d pts_3d_eigen;
   VecVector2d pts_2d_eigen;
   for (size_t i = 0; i < pts_3d.size(); ++i) {
@@ -169,6 +189,14 @@ Point2d pixel2cam(const Point2d &p, const Mat &K) {
     );
 }
 
+/**
+ * 边界调整
+ * 
+ * 把相机和三维点放在一起进行最小化
+ * 
+ * 手写版本
+ * 
+ **/
 void bundleAdjustmentGaussNewton(
   const VecVector3d &points_3d,
   const VecVector2d &points_2d,
@@ -189,14 +217,16 @@ void bundleAdjustmentGaussNewton(
     cost = 0;
     // compute cost
     for (int i = 0; i < points_3d.size(); i++) {
-      Eigen::Vector3d pc = pose * points_3d[i];
+      Eigen::Vector3d pc = pose * points_3d[i];  // 为什么？
       double inv_z = 1.0 / pc[2];
       double inv_z2 = inv_z * inv_z;
+      // 对应书的公式(7.40)、(7.41)
       Eigen::Vector2d proj(fx * pc[0] / pc[2] + cx, fy * pc[1] / pc[2] + cy);
-
+      // 重投影误差：将3D点的投影位置和观测位置作差
       Eigen::Vector2d e = points_2d[i] - proj;
 
       cost += e.squaredNorm();
+      // 公式(7.46)
       Eigen::Matrix<double, 2, 6> J;
       J << -fx * inv_z,
         0,
@@ -244,6 +274,14 @@ void bundleAdjustmentGaussNewton(
 }
 
 /// vertex and edges used in g2o ba
+// 把问题建模成一个图优化问题
+/**
+ * 实现了顶点更新和边的误差计算
+ * 
+ * 节点：第二个相机的位姿节点T属于SE(3)
+ * 
+ * 边：每个3D点在第二个相机中的投影，以观测方程描述Zj = h(T, Pj)
+ **/
 class VertexPose : public g2o::BaseVertex<6, Sophus::SE3d> {
 public:
   EIGEN_MAKE_ALIGNED_OPERATOR_NEW;
@@ -311,7 +349,9 @@ void bundleAdjustmentG2O(
   Sophus::SE3d &pose) {
 
   // 构建图优化，先设定g2o
+  // g2o::BlockSolver: 在Hessian矩阵上进行块的solver操作
   typedef g2o::BlockSolver<g2o::BlockSolverTraits<6, 3>> BlockSolverType;  // pose is 6, landmark is 3
+  // 使用稠密的cholesky分解进行线性求解
   typedef g2o::LinearSolverDense<BlockSolverType::PoseMatrixType> LinearSolverType; // 线性求解器类型
   // 梯度下降方法，可以从GN, LM, DogLeg 中选
   auto solver = new g2o::OptimizationAlgorithmGaussNewton(

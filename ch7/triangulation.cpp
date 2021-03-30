@@ -1,3 +1,15 @@
+/**
+ * 三角测量
+ * 
+ * 通过三角化求出特征点空间位置
+ * 
+ * 主要步骤：
+ * 1. 读取图像
+ * 2. 估计相机运动（ORB），得到R，t
+ * 3. 三角化，得到空间坐标
+ * 
+ **/
+
 #include <iostream>
 #include <opencv2/opencv.hpp>
 // #include "extra.h" // used in opencv2
@@ -16,6 +28,7 @@ void pose_estimation_2d2d(
   const std::vector<DMatch> &matches,
   Mat &R, Mat &t);
 
+// 最后一个参数：直接传入一个对象的引用来保存计算结果，而不是在程序中生成一个新的对象，然后返回此对象
 void triangulation(
   const vector<KeyPoint> &keypoint_1,
   const vector<KeyPoint> &keypoint_2,
@@ -24,7 +37,16 @@ void triangulation(
   vector<Point3d> &points
 );
 
-/// 作图用
+// 作图用
+/**
+ * 内联函数作用：避免函数调用的开销
+ * 
+ * 内联函数要点：
+ * 1. 编译时展开，非运行时
+ * 2. 不允许使用循环语句
+ * 3. 要放在函数定义，不能是函数声明，必须出现在第一次调用之前
+ * 4. 当函数体较小时，可以提高代码效率
+ **/
 inline cv::Scalar get_color(float depth) {
   float up_th = 50, low_th = 10, th_range = up_th - low_th;
   if (depth > up_th) depth = up_th;
@@ -66,11 +88,13 @@ int main(int argc, char **argv) {
     float depth1 = points[i].z;
     cout << "depth: " << depth1 << endl;
     Point2d pt1_cam = pixel2cam(keypoints_1[matches[i].queryIdx].pt, K);
+    // 画圆，标出匹配点对在第一张图像中的位置
     cv::circle(img1_plot, keypoints_1[matches[i].queryIdx].pt, 2, get_color(depth1), 2);
 
     // 第二个图
     Mat pt2_trans = R * (Mat_<double>(3, 1) << points[i].x, points[i].y, points[i].z) + t;
     float depth2 = pt2_trans.at<double>(2, 0);
+    // 画圆，标出匹配点对在第二张图像中的位置
     cv::circle(img2_plot, keypoints_2[matches[i].trainIdx].pt, 2, get_color(depth2), 2);
   }
   cv::imshow("img 1", img1_plot);
@@ -80,6 +104,9 @@ int main(int argc, char **argv) {
   return 0;
 }
 
+/**
+ * ORB
+ **/
 void find_feature_matches(const Mat &img_1, const Mat &img_2,
                           std::vector<KeyPoint> &keypoints_1,
                           std::vector<KeyPoint> &keypoints_2,
@@ -154,6 +181,9 @@ void pose_estimation_2d2d(
   recoverPose(essential_matrix, points1, points2, R, t, focal_length, principal_point);
 }
 
+/**
+ * 三角化
+ **/
 void triangulation(
   const vector<KeyPoint> &keypoint_1,
   const vector<KeyPoint> &keypoint_2,
@@ -164,12 +194,15 @@ void triangulation(
     1, 0, 0, 0,
     0, 1, 0, 0,
     0, 0, 1, 0);
+
+  // 用R的部分值初始化T2
   Mat T2 = (Mat_<float>(3, 4) <<
     R.at<double>(0, 0), R.at<double>(0, 1), R.at<double>(0, 2), t.at<double>(0, 0),
     R.at<double>(1, 0), R.at<double>(1, 1), R.at<double>(1, 2), t.at<double>(1, 0),
     R.at<double>(2, 0), R.at<double>(2, 1), R.at<double>(2, 2), t.at<double>(2, 0)
   );
 
+  // 相机内参矩阵K
   Mat K = (Mat_<double>(3, 3) << 520.9, 0, 325.1, 0, 521.0, 249.7, 0, 0, 1);
   vector<Point2f> pts_1, pts_2;
   for (DMatch m:matches) {
@@ -179,9 +212,14 @@ void triangulation(
   }
 
   Mat pts_4d;
+  /**
+   * triangulatePoints所有的输入都必须是float型
+   * 
+   **/
   cv::triangulatePoints(T1, T2, pts_1, pts_2, pts_4d);
 
   // 转换成非齐次坐标
+  // 即将4D坐标转成3D坐标，所有分量除以第4个分量后，保留前三个分量
   for (int i = 0; i < pts_4d.cols; i++) {
     Mat x = pts_4d.col(i);
     x /= x.at<float>(3, 0); // 归一化
