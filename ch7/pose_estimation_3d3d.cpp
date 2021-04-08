@@ -203,6 +203,7 @@ Point2d pixel2cam(const Point2d &p, const Mat &K) {
 void pose_estimation_3d3d(const vector<Point3f> &pts1,
                           const vector<Point3f> &pts2,
                           Mat &R, Mat &t) {
+  // 声明两个质心
   Point3f p1, p2;     // center of mass
   int N = pts1.size();
   for (int i = 0; i < N; i++) {
@@ -211,6 +212,8 @@ void pose_estimation_3d3d(const vector<Point3f> &pts1,
   }
   p1 = Point3f(Vec3f(p1) / N);
   p2 = Point3f(Vec3f(p2) / N);
+
+  // 计算每个点的去质心坐标
   vector<Point3f> q1(N), q2(N); // remove the center
   for (int i = 0; i < N; i++) {
     q1[i] = pts1[i] - p1;
@@ -218,6 +221,7 @@ void pose_estimation_3d3d(const vector<Point3f> &pts1,
   }
 
   // compute q1*q2^T
+  // 公式(7.57)，先定义矩阵W
   Eigen::Matrix3d W = Eigen::Matrix3d::Zero();
   for (int i = 0; i < N; i++) {
     W += Eigen::Vector3d(q1[i].x, q1[i].y, q1[i].z) * Eigen::Vector3d(q2[i].x, q2[i].y, q2[i].z).transpose();
@@ -225,17 +229,25 @@ void pose_estimation_3d3d(const vector<Point3f> &pts1,
   cout << "W=" << W << endl;
 
   // SVD on W
+  // 对W进行SVD分解
+  /**
+   * JacobiSVD默认只计算奇异值，如果需要U和V，需要明确指定
+   **/
   Eigen::JacobiSVD<Eigen::Matrix3d> svd(W, Eigen::ComputeFullU | Eigen::ComputeFullV);
+  // 返回U和V矩阵
   Eigen::Matrix3d U = svd.matrixU();
   Eigen::Matrix3d V = svd.matrixV();
 
   cout << "U=" << U << endl;
   cout << "V=" << V << endl;
-
+  
+  // 当W为满秩时
   Eigen::Matrix3d R_ = U * (V.transpose());
+  // 如果R的行列式为负，则取-R
   if (R_.determinant() < 0) {
     R_ = -R_;
   }
+  // 公式(7.54)
   Eigen::Vector3d t_ = Eigen::Vector3d(p1.x, p1.y, p1.z) - R_ * Eigen::Vector3d(p2.x, p2.y, p2.z);
 
   // convert to cv::Mat
