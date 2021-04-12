@@ -14,16 +14,21 @@
 
 using namespace std;
 
+// 自定义顶点
 // 曲线模型的顶点，模板参数：优化变量维度和数据类型
 class CurveFittingVertex : public g2o::BaseVertex<3, Eigen::Vector3d> {
 public:
+  // 有什么用？
   EIGEN_MAKE_ALIGNED_OPERATOR_NEW
 
   // 重置
+  // 将顶点的内置状态重置为0
   virtual void setToOriginImpl() override {
     _estimate << 0, 0, 0;
   }
-
+  
+  // 重写虚函数，目的是为了让基类指针可以调用子类方法
+  // 子类重写虚函数时，virtual关键字可加可不加，为了保证可读性，建议加
   // 更新
   virtual void oplusImpl(const double *update) override {
     _estimate += Eigen::Vector3d(update);
@@ -35,17 +40,23 @@ public:
   virtual bool write(ostream &out) const {}
 };
 
+// 自定义一元超边
 // 误差模型 模板参数：观测值维度，类型，连接顶点类型
 class CurveFittingEdge : public g2o::BaseUnaryEdge<1, double, CurveFittingVertex> {
 public:
   EIGEN_MAKE_ALIGNED_OPERATOR_NEW
-
+  
+  // 构造函数
+  // 调用父类的无参构造函数完成部分成员变量的初始化
   CurveFittingEdge(double x) : BaseUnaryEdge(), _x(x) {}
 
   // 计算曲线模型误差
   virtual void computeError() override {
+    // 静态强制类型转换，不进行动态类型检查
     const CurveFittingVertex *v = static_cast<const CurveFittingVertex *> (_vertices[0]);
+    // v->estimate()：返回当前顶点的_estimate值
     const Eigen::Vector3d abc = v->estimate();
+    // 公式(6.39)
     _error(0, 0) = _measurement - std::exp(abc(0, 0) * _x * _x + abc(1, 0) * _x + abc(2, 0));
   }
 
@@ -53,9 +64,13 @@ public:
   virtual void linearizeOplus() override {
     const CurveFittingVertex *v = static_cast<const CurveFittingVertex *> (_vertices[0]);
     const Eigen::Vector3d abc = v->estimate();
+    // 公式(6.40)
     double y = exp(abc[0] * _x * _x + abc[1] * _x + abc[2]);
+    // 误差对a求偏导
     _jacobianOplusXi[0] = -_x * _x * y;
+    // 误差对b求偏导
     _jacobianOplusXi[1] = -_x * y;
+    // 误差对c求偏导
     _jacobianOplusXi[2] = -y;
   }
 
@@ -104,7 +119,9 @@ int main(int argc, char **argv) {
     CurveFittingEdge *edge = new CurveFittingEdge(x_data[i]);
     edge->setId(i);
     edge->setVertex(0, v);                // 设置连接的顶点
-    edge->setMeasurement(y_data[i]);      // 观测数值
+    edge->setMeasurement(y_data[i]);      // 观测数值，即y
+    // 信息矩阵的作用是什么？
+    // 信息矩阵通常为对角矩阵，用来表示对各个分量的重视程度
     edge->setInformation(Eigen::Matrix<double, 1, 1>::Identity() * 1 / (w_sigma * w_sigma)); // 信息矩阵：协方差矩阵之逆
     optimizer.addEdge(edge);
   }
@@ -113,6 +130,7 @@ int main(int argc, char **argv) {
   cout << "start optimization" << endl;
   chrono::steady_clock::time_point t1 = chrono::steady_clock::now();
   optimizer.initializeOptimization();
+  // 迭代10次
   optimizer.optimize(10);
   chrono::steady_clock::time_point t2 = chrono::steady_clock::now();
   chrono::duration<double> time_used = chrono::duration_cast<chrono::duration<double>>(t2 - t1);
